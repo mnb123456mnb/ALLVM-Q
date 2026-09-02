@@ -49,21 +49,22 @@ jobs:
 
           # 3. Clone official LLVM release/21.x (complete cmake infrastructure)
           git clone --depth 1 --sparse --branch "$LLVM_OFFICIAL_BRANCH" "$LLVM_OFFICIAL_REPO" /tmp/llvm-official
-          git -C /tmp/llvm-official sparse-checkout set cmake/Modules llvm/cmake/modules llvm/include/llvm/Config
+          git -C /tmp/llvm-official sparse-checkout set cmake/Modules llvm/cmake/modules llvm/include/llvm/Config lld/cmake/modules
 
           # 4. Start with ALLVM as base in workspace
           find "$WS" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
           cp -a /tmp/allvm-base/. "$WS/"
           rm -rf /tmp/allvm-base
 
-          # 5. Fill missing infrastructure files from official LLVM (cp -n = no-clobber, ALLVM wins)
-          cp -rn /tmp/llvm-official/cmake/Modules/* "$WS/cmake/Modules/" 2>/dev/null || true
+          # 5. Fill missing infrastructure files from official LLVM (cp -rn = no-clobber, ALLVM wins)
           mkdir -p "$WS/cmake/Modules"
           cp -rn /tmp/llvm-official/cmake/Modules/. "$WS/cmake/Modules/"
           mkdir -p "$WS/llvm/cmake/modules"
           cp -rn /tmp/llvm-official/llvm/cmake/modules/. "$WS/llvm/cmake/modules/"
           mkdir -p "$WS/llvm/include/llvm/Config"
           cp -rn /tmp/llvm-official/llvm/include/llvm/Config/. "$WS/llvm/include/llvm/Config/"
+          mkdir -p "$WS/lld/cmake/modules"
+          cp -rn /tmp/llvm-official/lld/cmake/modules/. "$WS/lld/cmake/modules/" 2>/dev/null || true
           rm -rf /tmp/llvm-official
 
           # 6. Overlay our branded files on top (Q-Protector branding wins)
