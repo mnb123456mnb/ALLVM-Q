@@ -227,16 +227,26 @@ jobs:
       - name: Package full NDK (complete NDK structure + aarch64 toolchain)
         run: |
           set -e
-          NDK_SRC=$(dirname "$(dirname "$(dirname "$NDK_PREBUILT")")")
+          # NDK_PREBUILT = <NDK根>/toolchains/llvm/prebuilt/linux-x86_64
+          # 往上 4 级 = NDK 根目录
+          NDK_SRC=$(cd "$NDK_PREBUILT/../../../.." && pwd)
+          echo "NDK_SRC=$NDK_SRC"
+          test -f "$NDK_SRC/source.properties" || { echo 'FATAL: NDK root path wrong (no source.properties)'; exit 1; }
           NDK_PKG=$RUNNER_TEMP/ndk-pkg/android-ndk-allvm-q
           # 1. 整包复制官方 NDK（保留 ndk-build / build / meta / simpleperf / sysroot 等全部结构）
           mkdir -p "$RUNNER_TEMP/ndk-pkg"
           cp -a "$NDK_SRC" "$NDK_PKG"
-          # 2. 把 x86_64 host 目录改名为 linux-aarch64（wrapper 脚本用相对路径，改名后仍可用）
+          # 2. host 目录改名为 linux-aarch64（wrapper 脚本用相对路径定位，改名后仍可用）
+          test -d "$NDK_PKG/toolchains/llvm/prebuilt/linux-x86_64"
           mv "$NDK_PKG/toolchains/llvm/prebuilt/linux-x86_64" "$NDK_PKG/toolchains/llvm/prebuilt/linux-aarch64"
           PREBUILT=$NDK_PKG/toolchains/llvm/prebuilt/linux-aarch64
           # 3. 删除 prebuilt/bin 下的 x86_64 ELF 二进制（保留 shell wrapper 脚本）
           for f in "$PREBUILT/bin/"*; do
+            if [ -f "$f" ] && head -c 4 "$f" | grep -q $'\\x7fELF'; then rm -f "$f"; fi
+          done
+          # 3b. 清理其他 x86_64 host 二进制（simpleperf host 工具、LLVMPolly.so）
+          rm -rf "$NDK_PKG/simpleperf/bin/linux/x86_64" 2>/dev/null || true
+          for f in "$PREBUILT/bin/"*.so "$PREBUILT/"*.so; do
             if [ -f "$f" ] && head -c 4 "$f" | grep -q $'\\x7fELF'; then rm -f "$f"; fi
           done
           # 4. 拷入我们编译的 aarch64 工具链并 strip
