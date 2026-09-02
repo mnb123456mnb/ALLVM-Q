@@ -505,7 +505,7 @@ include $(BUILD_EXECUTABLE)
 | `llvm\lib\Transforms\Obfuscation\ConstantIntEncryption.cpp` | 整数常量加密 |
 | `llvm\lib\Transforms\Obfuscation\ConstantFPEncryption.cpp` | 浮点常量加密 |
 | `llvm\lib\Transforms\Obfuscation\MicrosoftRTTIEraser.cpp` | MSVC RTTI 擦除 |
-| `llvm\lib\Transforms\Obfuscation\AProtect.cpp` | Q-Protector 输出注入 |
+| `llvm\lib\Transforms\Obfuscation\QProtect.cpp` | Q-Protector 输出注入 |
 | `llvm\lib\Transforms\Obfuscation\BanDump.cpp` | 内存 Dump 保护 |
 | `llvm\lib\Transforms\Obfuscation\LdPreloadProtect.cpp` | LD_PRELOAD 注入检测 |
 | `llvm\lib\Transforms\Obfuscation\HideMaps.cpp` | 隐藏 Maps 保护 |

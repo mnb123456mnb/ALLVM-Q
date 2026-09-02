@@ -1,4 +1,4 @@
-//===- AProtect.cpp - Q-Protector注入Pass ----------------------===//
+//===- QProtect.cpp - Q-Protector注入Pass ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/Obfuscation/AProtect.h"
+#include "llvm/Transforms/Obfuscation/QProtect.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -20,21 +20,21 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 
-#define DEBUG_TYPE "aprotect"
+#define DEBUG_TYPE "qprotect"
 
 using namespace llvm;
 
 namespace {
 
-struct AProtect : public ModulePass {
+struct QProtect : public ModulePass {
     static char ID;
 
-    AProtect() : ModulePass(ID) {
-        initializeAProtectPass(*PassRegistry::getPassRegistry());
+    QProtect() : ModulePass(ID) {
+        initializeQProtectPass(*PassRegistry::getPassRegistry());
     }
 
     StringRef getPassName() const override {
-        return {"AProtect"};
+        return {"QProtect"};
     }
 
     bool runOnModule(Module &M) override;
@@ -42,15 +42,15 @@ struct AProtect : public ModulePass {
 
 }
 
-char AProtect::ID = 0;
+char QProtect::ID = 0;
 
-bool AProtect::runOnModule(Module &M) {
+bool QProtect::runOnModule(Module &M) {
     LLVMContext &Ctx = M.getContext();
     Type *Int32Ty = Type::getInt32Ty(Ctx);
     Type *CharPtrTy = PointerType::get(Ctx, 0);
     Type *VoidTy = Type::getVoidTy(Ctx);
 
-    // 创建AProtect初始化函数
+    // 创建QProtect初始化函数
     FunctionType *InitFuncTy = FunctionType::get(VoidTy, false);
     Function *InitFunc = Function::Create(
         InitFuncTy, GlobalValue::PrivateLinkage, ".ap.init", &M);
@@ -63,12 +63,12 @@ bool AProtect::runOnModule(Module &M) {
         "printf", FunctionType::get(Int32Ty, {CharPtrTy}, true));
 
     // 打印 Q-Protector 标识
-    Constant *AProtectStr = ConstantDataArray::getString(Ctx, "\x1b[38;2;65;179;73mQ-Protector\x1b[0m\n");
-    GlobalVariable *AProtectGV = new GlobalVariable(
-        M, AProtectStr->getType(), true, GlobalValue::PrivateLinkage,
-        AProtectStr, ".ap.str");
-    Constant *AProtectPtr = ConstantExpr::getBitCast(AProtectGV, CharPtrTy);
-    Builder.CreateCall(PrintfFunc, {AProtectPtr});
+    Constant *QProtectStr = ConstantDataArray::getString(Ctx, "\x1b[38;2;65;179;73mQ-Protector\x1b[0m\n");
+    GlobalVariable *QProtectGV = new GlobalVariable(
+        M, QProtectStr->getType(), true, GlobalValue::PrivateLinkage,
+        QProtectStr, ".ap.str");
+    Constant *QProtectPtr = ConstantExpr::getBitCast(QProtectGV, CharPtrTy);
+    Builder.CreateCall(PrintfFunc, {QProtectPtr});
 
     // 打印版本号
     Constant *VersionStr = ConstantDataArray::getString(Ctx, "\x1b[38;2;65;179;73mversion: 1.0.0\x1b[0m\n");
@@ -116,9 +116,9 @@ bool AProtect::runOnModule(Module &M) {
     return true;
 }
 
-ModulePass *llvm::createAProtectPass() {
-    return new AProtect();
+ModulePass *llvm::createQProtectPass() {
+    return new QProtect();
 }
 
-INITIALIZE_PASS_BEGIN(AProtect, "aprotect", "Inject Q-Protector output at program start", false, false)
-INITIALIZE_PASS_END(AProtect, "aprotect", "Inject Q-Protector output at program start", false, false)
+INITIALIZE_PASS_BEGIN(QProtect, "qprotect", "Inject Q-Protector output at program start", false, false)
+INITIALIZE_PASS_END(QProtect, "qprotect", "Inject Q-Protector output at program start", false, false)

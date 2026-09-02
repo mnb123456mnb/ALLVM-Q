@@ -24,7 +24,7 @@ Constant* DetectUtils::createGlobalString(Module &M, const std::string &str, con
         GlobalValue::PrivateLinkage, StrConst,
         name
     );
-    StrGV->setSection(".AProtect.rodata");
+    StrGV->setSection(".QProtect.rodata");
     return ConstantExpr::getBitCast(StrGV, PointerType::get(Ctx, 0));
 }
 
@@ -49,7 +49,7 @@ static void createStderrWrite(Module &M, IRBuilder<> &Builder,
     });
 }
 
-static void createAProtectBannerWrite(Module &M, IRBuilder<> &Builder) {
+static void createQProtectBannerWrite(Module &M, IRBuilder<> &Builder) {
     createStderrWrite(M, Builder, "\x1b[38;2;65;179;73mQ-Protector\x1b[0m\n", ".detect.banner");
     createStderrWrite(M, Builder, "\x1b[38;2;65;179;73mversion: 1.0.0\x1b[0m\n", ".detect.version");
 }
@@ -77,7 +77,7 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
 
-    createAProtectBannerWrite(M, Builder);
+    createQProtectBannerWrite(M, Builder);
     // VPN 触发时附加专属提示（正式版也显示）
     if (detectName == "VPN Connection") {
         createStderrWrite(
@@ -369,7 +369,7 @@ Function* DetectUtils::createThreadFunc(Module &M, Function *checkFunc, const De
             GlobalValue::PrivateLinkage, FmtStr,
             ".thread.fmt"
         );
-        FmtGV->setSection(".AProtect.rodata");
+        FmtGV->setSection(".QProtect.rodata");
         
         Value *RandName = Builder.CreateCall(RandFunc);
         Builder.CreateCall(SprintfFunc, {
@@ -900,7 +900,7 @@ Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, co
         GlobalValue::PrivateLinkage, KeyStr,
         ".env.key"
     );
-    KeyGV->setSection(".AProtect.rodata");
+    KeyGV->setSection(".QProtect.rodata");
 
     // 环境变量名 "lc"
     Constant *EnvNameStr = ConstantDataArray::getString(Ctx, "lc");
@@ -909,7 +909,7 @@ Function* DetectUtils::createEnvVarCheckFunc(Module &M, Function *reportFunc, co
         GlobalValue::PrivateLinkage, EnvNameStr,
         ".env.name"
     );
-    EnvNameGV->setSection(".AProtect.rodata");
+    EnvNameGV->setSection(".QProtect.rodata");
 
     // getenv("lc")
     FunctionCallee GetenvFunc = M.getOrInsertFunction(
@@ -1056,7 +1056,7 @@ Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, 
         GlobalValue::PrivateLinkage, KeyStr,
         ".gz.env.key"
     );
-    KeyGV->setSection(".AProtect.rodata");
+    KeyGV->setSection(".QProtect.rodata");
 
     // 环境变量名 "lc_gz"
     Constant *EnvNameStr = ConstantDataArray::getString(Ctx, "lc_gz");
@@ -1065,7 +1065,7 @@ Function* DetectUtils::createGzEnvVarCheckFunc(Module &M, Function *reportFunc, 
         GlobalValue::PrivateLinkage, EnvNameStr,
         ".gz.env.name"
     );
-    EnvNameGV->setSection(".AProtect.rodata");
+    EnvNameGV->setSection(".QProtect.rodata");
 
     // getenv("lc_gz")
     FunctionCallee GetenvFunc = M.getOrInsertFunction(
@@ -1230,7 +1230,7 @@ Function* DetectUtils::createRandomThreadAttrFunc(Module &M) {
         GlobalValue::PrivateLinkage, FmtStr,
         ".thread.fmt"
     );
-    FmtGV->setSection(".AProtect.rodata");
+    FmtGV->setSection(".QProtect.rodata");
     
     FunctionCallee SprintfFunc = M.getOrInsertFunction(
         "sprintf",

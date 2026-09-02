@@ -1,4 +1,4 @@
-//===- AProtect.h - Q-Protector Pass头文件 ----------------------===//
+//===- QProtect.h - Q-Protector Pass头文件 ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -6,15 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TRANSFORMS_OBFUSCATION_APROTECT_H
-#define LLVM_TRANSFORMS_OBFUSCATION_APROTECT_H
+#ifndef LLVM_TRANSFORMS_OBFUSCATION_QPROTECT_H
+#define LLVM_TRANSFORMS_OBFUSCATION_QPROTECT_H
 
 namespace llvm {
 class ModulePass;
 class PassRegistry;
 
-ModulePass* createAProtectPass();
-void initializeAProtectPass(PassRegistry &Registry);
+ModulePass* createQProtectPass();
+void initializeQProtectPass(PassRegistry &Registry);
 }
 
 #endif
