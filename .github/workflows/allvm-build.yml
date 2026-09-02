@@ -28,7 +28,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake clang lld zlib1g-dev libzstd-dev python3 file unzip wget rsync
+          sudo apt-get install -y ninja-build cmake clang lld zlib1g-dev libzstd-dev \
+            python3 file unzip wget rsync libxml2-dev libedit-dev
 
       - name: Free disk space
         run: |
@@ -36,61 +37,72 @@ jobs:
           sudo docker image prune -af || true
           df -h /
 
-      - name: Assemble source (official LLVM base + ALLVM overlay + our branding)
+      - name: Assemble source (official LLVM 21.x base + ALLVM overlay + our branding)
         run: |
           set -e
           WS="$GITHUB_WORKSPACE"
 
-          # 1. Save our fork's modified files
+          # 1. Save our fork's branded files
           rsync -a --exclude='.git' "$WS/" /tmp/our-fork/
 
-          # 2. Clone ALLVM upstream (has obfuscation passes + aVMPInterpreter + all custom changes)
+          # 2. Clone official LLVM release/21.x as COMPLETE base (has all cmake infrastructure)
+          git clone --depth 1 --branch "$LLVM_OFFICIAL_BRANCH" "$LLVM_OFFICIAL_REPO" /tmp/llvm-base
+
+          # 3. Clone ALLVM upstream (has obfuscation passes + aVMPInterpreter)
           git clone --depth 1 "$UPSTREAM_REPO" /tmp/allvm-base
 
-          # 3. Clone official LLVM release/21.x (complete cmake infrastructure)
-          git clone --depth 1 --sparse --branch "$LLVM_OFFICIAL_BRANCH" "$LLVM_OFFICIAL_REPO" /tmp/llvm-official
-          git -C /tmp/llvm-official sparse-checkout set \
-            cmake/Modules \
-            llvm/cmake/modules \
-            llvm/include/llvm/Config \
-            lld/cmake/modules \
-            clang/cmake/modules
-
-          # 4. Start with ALLVM as base in workspace
+          # 4. Put official LLVM 21.x into workspace as base
           find "$WS" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          cp -a /tmp/allvm-base/. "$WS/"
+          cp -a /tmp/llvm-base/. "$WS/"
+          rm -rf /tmp/llvm-base
+
+          # 5. Overlay ALLVM-specific files on top (ALLVM wins for these paths)
+          #    aVMPInterpreter (new dir, not in official LLVM)
+          cp -a /tmp/allvm-base/aVMPInterpreter "$WS/"
+          #    Obfuscation passes (new dir)
+          mkdir -p "$WS/llvm/lib/Transforms/Obfuscation"
+          cp -a /tmp/allvm-base/llvm/lib/Transforms/Obfuscation/. "$WS/llvm/lib/Transforms/Obfuscation/"
+          #    Obfuscation headers (new dir)
+          mkdir -p "$WS/llvm/include/llvm/Transforms/Obfuscation"
+          cp -a /tmp/allvm-base/llvm/include/llvm/Transforms/Obfuscation/. "$WS/llvm/include/llvm/Transforms/Obfuscation/"
+          #    Transforms CMakeLists (ALLVM adds add_subdirectory(Obfuscation))
+          cp -f /tmp/allvm-base/llvm/lib/Transforms/CMakeLists.txt "$WS/llvm/lib/Transforms/CMakeLists.txt"
+          #    PassBuilderPipelines (ALLVM adds obfuscation pass manager)
+          cp -f /tmp/allvm-base/llvm/lib/Passes/PassBuilderPipelines.cpp "$WS/llvm/lib/Passes/PassBuilderPipelines.cpp"
+          #    Clang Version.cpp (ALLVM adds brand output)
+          cp -f /tmp/allvm-base/clang/lib/Basic/Version.cpp "$WS/clang/lib/Basic/Version.cpp"
+          #    Clang ELFWrapper (ALLVM adds ELF wrapper)
+          cp -f /tmp/allvm-base/clang/lib/Driver/ELFWrapper.cpp "$WS/clang/lib/Driver/ELFWrapper.cpp"
+          cp -f /tmp/allvm-base/clang/lib/Driver/CMakeLists.txt "$WS/clang/lib/Driver/CMakeLists.txt"
+          #    Clang Options.td (ALLVM adds -firobf flags)
+          cp -f /tmp/allvm-base/clang/include/clang/Driver/Options.td "$WS/clang/include/clang/Driver/Options.td"
+          #    Root-level ALLVM files
+          cp -f /tmp/allvm-base/build.cpp "$WS/" 2>/dev/null || true
+          cp -f /tmp/allvm-base/build.exe "$WS/" 2>/dev/null || true
+          cp -f /tmp/allvm-base/compile_build.bat "$WS/" 2>/dev/null || true
+          cp -f /tmp/allvm-base/qq.jpg "$WS/" 2>/dev/null || true
+          #    clang-tools-extra if ALLVM has it
+          cp -f /tmp/allvm-base/clang/lib/Basic/CMakeLists.txt "$WS/clang/lib/Basic/CMakeLists.txt" 2>/dev/null || true
+          cp -f /tmp/allvm-base/llvm/lib/Passes/CMakeLists.txt "$WS/llvm/lib/Passes/CMakeLists.txt" 2>/dev/null || true
           rm -rf /tmp/allvm-base
 
-          # 5. Fill ALL missing cmake infrastructure from official LLVM (force overwrite)
-          #    ALLVM's cmake modules are incomplete — use official as authoritative
-          rm -rf "$WS/cmake/Modules"
-          cp -a /tmp/llvm-official/cmake/Modules "$WS/cmake/Modules"
-          rm -rf "$WS/llvm/cmake/modules"
-          cp -a /tmp/llvm-official/llvm/cmake/modules "$WS/llvm/cmake/modules"
-          # Config dir: use official (has llvm-config.h.cmake etc.), but keep ALLVM's .def.in
-          cp -a /tmp/llvm-official/llvm/include/llvm/Config/. "$WS/llvm/include/llvm/Config/"
-          rm -rf "$WS/lld/cmake/modules"
-          cp -a /tmp/llvm-official/lld/cmake/modules "$WS/lld/cmake/modules" 2>/dev/null || true
-          rm -rf "$WS/clang/cmake/modules"
-          cp -a /tmp/llvm-official/clang/cmake/modules "$WS/clang/cmake/modules" 2>/dev/null || true
-          rm -rf /tmp/llvm-official
-
-          # 6. Overlay our branded files on top (Q-Protector branding wins)
+          # 6. Overlay our branded files on top (Q-Protector branding wins over ALLVM)
           rsync -a --exclude='.git' /tmp/our-fork/ "$WS/"
           rm -rf /tmp/our-fork
 
-          # Verify
-          echo "=== cmake/Modules ==="
-          ls "$WS/cmake/Modules/" | head -5
-          echo "=== llvm/cmake/modules ==="
-          ls "$WS/llvm/cmake/modules/" | head -10
-          echo "=== Obfuscation ==="
-          ls "$WS/llvm/lib/Transforms/Obfuscation/" | head -10
-          echo "=== Config ==="
-          ls "$WS/llvm/include/llvm/Config/" | head -10
-          echo "=== branding ==="
+          # Verify assembly
+          echo "=== cmake/Modules count ==="
+          ls "$WS/cmake/Modules/" | wc -l
+          echo "=== llvm/cmake/modules count ==="
+          ls "$WS/llvm/cmake/modules/" | wc -l
+          echo "=== Obfuscation dir ==="
+          ls "$WS/llvm/lib/Transforms/Obfuscation/" | head -5
+          echo "=== Config files ==="
+          ls "$WS/llvm/include/llvm/Config/"
+          echo "=== branding check ==="
           grep -c "Q-Protector" "$WS/aVMPInterpreter/aVMPInterpreter.cpp"
           grep -c "Q-Protector" "$WS/llvm/lib/Transforms/Obfuscation/DetectUtils.cpp"
+          echo "ASSEMBLE_DONE"
 
       - name: Verify critical files
         run: |
@@ -104,6 +116,8 @@ jobs:
             llvm/cmake/modules/config-ix.cmake \
             llvm/cmake/modules/GetLibraryName.cmake \
             llvm/cmake/modules/TableGen.cmake \
+            llvm/cmake/modules/LLVMProcessSources.cmake \
+            llvm/cmake/modules/LLVMDistributionSupport.cmake \
             llvm/include/llvm/Config/config.h.cmake \
             llvm/include/llvm/Config/llvm-config.h.cmake \
             llvm/include/llvm/Config/abi-breaking.h.cmake \
