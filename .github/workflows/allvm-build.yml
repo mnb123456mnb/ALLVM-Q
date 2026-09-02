@@ -113,7 +113,6 @@ jobs:
             cmake/Modules/LLVMVersion.cmake \
             llvm/cmake/modules/AddLLVM.cmake \
             llvm/cmake/modules/HandleLLVMOptions.cmake \
-            llvm/cmake/modules/config-ix.cmake \
             llvm/cmake/modules/GetLibraryName.cmake \
             llvm/cmake/modules/TableGen.cmake \
             llvm/cmake/modules/LLVMProcessSources.cmake \
