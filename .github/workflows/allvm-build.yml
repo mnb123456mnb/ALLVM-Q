@@ -23,43 +23,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Clone upstream ALLVM as base source
-        run: |
-          set -e
-          # Save our fork's modified files (checkout content) to temp
-          rsync -a --exclude='.git' "$GITHUB_WORKSPACE/" /tmp/our-fork/
-          # Clone upstream (full LLVM monorepo with ALLVM obfuscation passes)
-          git clone --depth 1 "$UPSTREAM_REPO" /tmp/allvm-base
-          # ALLVM repo is missing cmake/Modules/ — clone from official LLVM
-          git clone --depth 1 --sparse https://github.com/llvm/llvm-project.git /tmp/llvm-upstream
-          cd /tmp/llvm-upstream && git sparse-checkout set cmake/Modules
-          cp -r cmake/Modules /tmp/llvm-cmake-Modules
-          cd /tmp/allvm-base
-          mkdir -p cmake
-          cp -r /tmp/llvm-cmake-Modules cmake/Modules
-          rm -rf /tmp/llvm-upstream /tmp/llvm-cmake-Modules
-          # Clear workspace (keep .git for actions)
-          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          # Copy upstream content into workspace
-          cp -a /tmp/allvm-base/. "$GITHUB_WORKSPACE/"
-          rm -rf /tmp/allvm-base
-          # Overlay our modified files on top of upstream (our versions take priority)
-          rsync -a --exclude='.git' /tmp/our-fork/ "$GITHUB_WORKSPACE/"
-          # Restore .github (our workflow, not upstream's)
-          rm -rf "$GITHUB_WORKSPACE/.github"
-          cp -a /tmp/our-fork/.github "$GITHUB_WORKSPACE/.github"
-          rm -rf /tmp/our-fork
-          cd "$GITHUB_WORKSPACE"
-          echo "=== Source assembled ==="
-          ls -la
-          echo "=== cmake check ==="
-          ls cmake/Modules/ | head -10 || echo "NO cmake/Modules"
-          echo "=== llvm cmake check ==="
-          ls llvm/cmake/modules/ | head -5 || echo "NO llvm/cmake/modules"
-          echo "=== branding check ==="
-          grep -c "Q-Protector" aVMPInterpreter/aVMPInterpreter.cpp
-          grep -c "Q-Protector" llvm/lib/Transforms/Obfuscation/DetectUtils.cpp
-
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -71,7 +34,35 @@ jobs:
           sudo docker image prune -af || true
           df -h /
 
-      - name: Verify critical files (previous-failure regression check)
+      - name: Clone upstream ALLVM as base source
+        run: |
+          set -e
+          WS="$GITHUB_WORKSPACE"
+          # 1. Save our fork's modified files to temp
+          rsync -a --exclude='.git' "$WS/" /tmp/our-fork/
+          # 2. Clone ALLVM upstream
+          git clone --depth 1 "$UPSTREAM_REPO" /tmp/allvm-base
+          # 3. ALLVM missing cmake/Modules/ — fetch from official LLVM
+          git clone --depth 1 --sparse https://github.com/llvm/llvm-project.git /tmp/llvm-up
+          git -C /tmp/llvm-up sparse-checkout set cmake/Modules
+          cp -r /tmp/llvm-up/cmake/Modules /tmp/allvm-base/cmake/Modules
+          rm -rf /tmp/llvm-up
+          # 4. Clear workspace (keep .git)
+          find "$WS" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          # 5. Copy upstream into workspace
+          cp -a /tmp/allvm-base/. "$WS/"
+          rm -rf /tmp/allvm-base
+          # 6. Overlay our modified files on top
+          rsync -a --exclude='.git' /tmp/our-fork/ "$WS/"
+          rm -rf /tmp/our-fork
+          # Verify
+          echo "=== cmake/Modules ==="
+          ls "$WS/cmake/Modules/" | head -5
+          echo "=== branding ==="
+          grep -c "Q-Protector" "$WS/aVMPInterpreter/aVMPInterpreter.cpp"
+          grep -c "Q-Protector" "$WS/llvm/lib/Transforms/Obfuscation/DetectUtils.cpp"
+
+      - name: Verify critical files
         run: |
           set -e
           missing=0
@@ -87,7 +78,6 @@ jobs:
             aVMPInterpreter/aVMPInterpreter.cpp ; do
             if [ -f "$f" ]; then echo "OK   $f"; else echo "MISS $f"; missing=1; fi
           done
-          # Also verify our branding changes are present
           grep -q "Q-Protector" aVMPInterpreter/aVMPInterpreter.cpp
           grep -q "Q-Protector" llvm/lib/Transforms/Obfuscation/DetectUtils.cpp
           grep -q "Q-Protector" llvm/lib/Transforms/Obfuscation/AProtect.cpp
@@ -107,11 +97,11 @@ jobs:
       - name: Rebuild aVMPInterpreter.bc (Q-Protector branding)
         run: |
           set -e
-          cd aVMPInterpreter
-          clang -O2 -emit-llvm -c aVMPInterpreter.cpp -o aVMPInterpreter.bc \
+          clang -O2 -emit-llvm -c aVMPInterpreter/aVMPInterpreter.cpp \
+            -o aVMPInterpreter/aVMPInterpreter.bc \
             -target aarch64-linux-android21 --sysroot="$NDK_PREBUILT/sysroot"
-          file aVMPInterpreter.bc
-          strings aVMPInterpreter.bc | grep -c "Q-Protector" || true
+          file aVMPInterpreter/aVMPInterpreter.bc
+          strings aVMPInterpreter/aVMPInterpreter.bc | grep -c "Q-Protector" || true
 
       - name: Regenerate vm.h from new .bc
         run: |
@@ -205,7 +195,6 @@ jobs:
             if [ -f "build/bin/$t" ]; then cp "build/bin/$t" "$PREBUILT/bin/"; fi
           done
           build/bin/llvm-strip "$PREBUILT/bin/"* 2>/dev/null || true
-          # Copy platform-independent wrapper scripts from official NDK
           for f in "$NDK_PREBUILT/bin/"*; do
             if head -c 2 "$f" | grep -q '#!'; then cp "$f" "$PREBUILT/bin/"; fi
           done
