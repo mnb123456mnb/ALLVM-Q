@@ -80,7 +80,11 @@ jobs:
           # 6. Overlay our branded files on top (Q-Protector branding wins over ALLVM)
           rsync -a --exclude='.git' /tmp/our-fork/ "$WS/"
           rm -rf /tmp/our-fork
-
+          # 7. 上游 CMakeLists.txt 引用的是 AProtect.cpp，我们的文件已改名 QProtect.cpp，
+          #    这里同步改写上游构建引用，否则 CMake 找不到 AProtect.cpp
+          sed -i 's/AProtect\.cpp/QProtect.cpp/g' "$WS/llvm/lib/Transforms/Obfuscation/CMakeLists.txt"
+          grep -q 'QProtect.cpp' "$WS/llvm/lib/Transforms/Obfuscation/CMakeLists.txt" || { echo 'FATAL: CMakeLists rewrite failed'; exit 1; }
+          echo 'CMakeLists AProtect->QProtect rewritten OK'
           # Verify assembly
           echo "=== cmake/Modules count ==="
           ls "$WS/cmake/Modules/" | wc -l
@@ -113,7 +117,7 @@ jobs:
             llvm/include/llvm/Config/abi-breaking.h.cmake \
             llvm/lib/Transforms/Obfuscation/CMakeLists.txt \
             llvm/lib/Transforms/Obfuscation/DetectUtils.cpp \
-            llvm/lib/Transforms/Obfuscation/AProtect.cpp \
+            llvm/lib/Transforms/Obfuscation/QProtect.cpp \
             llvm/include/llvm/Transforms/Obfuscation/aVMP/vm.h \
             lld/cmake/modules/AddLLD.cmake \
             clang/cmake/modules/AddClang.cmake \
@@ -122,7 +126,7 @@ jobs:
           done
           grep -q "Q-Protector" aVMPInterpreter/aVMPInterpreter.cpp
           grep -q "Q-Protector" llvm/lib/Transforms/Obfuscation/DetectUtils.cpp
-          grep -q "Q-Protector" llvm/lib/Transforms/Obfuscation/AProtect.cpp
+          grep -q "Q-Protector" llvm/lib/Transforms/Obfuscation/QProtect.cpp
           grep -q "wsq520a" clang/lib/Basic/Version.cpp
           echo "Branding verification passed"
           exit $missing
