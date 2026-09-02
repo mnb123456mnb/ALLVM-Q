@@ -14,7 +14,7 @@
 
 基于 LLVM 21.x 的 ALLVM 混淆器，用于 Android NDK 编译的代码混淆和保护。
 
-> **GitHub**: [https://github.com/wsq520a/ALLVM](https://github.com/wsq520a/ALLVM)
+> **GitHub**: [https://github.com/mnb123456mnb/ALLVM-Q](https://github.com/mnb123456mnb/ALLVM-Q)
 
 ## 快速开始
 
