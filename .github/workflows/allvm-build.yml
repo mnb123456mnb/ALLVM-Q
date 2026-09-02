@@ -56,34 +56,25 @@ jobs:
           cp -a /tmp/llvm-base/. "$WS/"
           rm -rf /tmp/llvm-base
 
-          # 5. Overlay ALLVM-specific files on top (ALLVM wins for these paths)
+          # 5. Overlay ALLVM's FULL llvm/clang/lld trees on top (ALLVM wins for source code)
+          #    This guarantees ALLVM modifications are complete (headers, passes, drivers, td files)
+          #    but keep official cmake infrastructure (ALLVM's is incomplete):
+          #      - */cmake/modules (ALLVM dirs have only 4 files, official has full set)
+          #      - llvm/include/llvm/Config (ALLVM missing llvm-config.h.cmake etc.)
+          rsync -a /tmp/allvm-base/llvm/ "$WS/llvm/" \
+            --exclude 'cmake/modules' \
+            --exclude 'include/llvm/Config'
+          rsync -a /tmp/allvm-base/clang/ "$WS/clang/" \
+            --exclude 'cmake/modules'
+          rsync -a /tmp/allvm-base/lld/ "$WS/lld/" \
+            --exclude 'cmake/modules'
           #    aVMPInterpreter (new dir, not in official LLVM)
           cp -a /tmp/allvm-base/aVMPInterpreter "$WS/"
-          #    Obfuscation passes (new dir)
-          mkdir -p "$WS/llvm/lib/Transforms/Obfuscation"
-          cp -a /tmp/allvm-base/llvm/lib/Transforms/Obfuscation/. "$WS/llvm/lib/Transforms/Obfuscation/"
-          #    Obfuscation headers (new dir)
-          mkdir -p "$WS/llvm/include/llvm/Transforms/Obfuscation"
-          cp -a /tmp/allvm-base/llvm/include/llvm/Transforms/Obfuscation/. "$WS/llvm/include/llvm/Transforms/Obfuscation/"
-          #    Transforms CMakeLists (ALLVM adds add_subdirectory(Obfuscation))
-          cp -f /tmp/allvm-base/llvm/lib/Transforms/CMakeLists.txt "$WS/llvm/lib/Transforms/CMakeLists.txt"
-          #    PassBuilderPipelines (ALLVM adds obfuscation pass manager)
-          cp -f /tmp/allvm-base/llvm/lib/Passes/PassBuilderPipelines.cpp "$WS/llvm/lib/Passes/PassBuilderPipelines.cpp"
-          #    Clang Version.cpp (ALLVM adds brand output)
-          cp -f /tmp/allvm-base/clang/lib/Basic/Version.cpp "$WS/clang/lib/Basic/Version.cpp"
-          #    Clang ELFWrapper (ALLVM adds ELF wrapper)
-          cp -f /tmp/allvm-base/clang/lib/Driver/ELFWrapper.cpp "$WS/clang/lib/Driver/ELFWrapper.cpp"
-          cp -f /tmp/allvm-base/clang/lib/Driver/CMakeLists.txt "$WS/clang/lib/Driver/CMakeLists.txt"
-          #    Clang Options.td (ALLVM adds -firobf flags)
-          cp -f /tmp/allvm-base/clang/include/clang/Driver/Options.td "$WS/clang/include/clang/Driver/Options.td"
           #    Root-level ALLVM files
           cp -f /tmp/allvm-base/build.cpp "$WS/" 2>/dev/null || true
           cp -f /tmp/allvm-base/build.exe "$WS/" 2>/dev/null || true
           cp -f /tmp/allvm-base/compile_build.bat "$WS/" 2>/dev/null || true
           cp -f /tmp/allvm-base/qq.jpg "$WS/" 2>/dev/null || true
-          #    clang-tools-extra if ALLVM has it
-          cp -f /tmp/allvm-base/clang/lib/Basic/CMakeLists.txt "$WS/clang/lib/Basic/CMakeLists.txt" 2>/dev/null || true
-          cp -f /tmp/allvm-base/llvm/lib/Passes/CMakeLists.txt "$WS/llvm/lib/Passes/CMakeLists.txt" 2>/dev/null || true
           rm -rf /tmp/allvm-base
 
           # 6. Overlay our branded files on top (Q-Protector branding wins over ALLVM)
