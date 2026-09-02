@@ -115,6 +115,12 @@ struct ConstantIntEncryption : public FunctionPass {
    * @return 如果函数被修改返回true，否则返回false
    */
   bool runOnFunction(Function &F) override {
+    // Q-Protector fix: skip VMP-generated runtime functions.
+    // Constant encryption after VMP translation corrupts interpreter IR
+    // (invalid GEP) and crashes backend instruction selection.
+    if (F.getName().contains("vm_interpreter") || F.getName().starts_with("vmp_")) {
+      return false;
+    }
     if (isIRObfuscationDebugEnabled()) {
       errs() << "[DEBUG] ConstantIntEncryption: Starting runOnFunction: " << F.getName() << "\n";
     }
