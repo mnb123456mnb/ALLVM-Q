@@ -130,7 +130,7 @@ jobs:
 
       - name: Configure CMake
         run: |
-          cmake -G Ninja -B build -S . \
+          cmake -G Ninja -B build -S llvm \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
             -DCMAKE_BUILD_TYPE=Release \
             -DLLVM_TARGETS_TO_BUILD="AArch64;ARM;X86" \
