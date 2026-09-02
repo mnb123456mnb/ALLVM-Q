@@ -30,6 +30,14 @@ jobs:
           rsync -a --exclude='.git' "$GITHUB_WORKSPACE/" /tmp/our-fork/
           # Clone upstream (full LLVM monorepo with ALLVM obfuscation passes)
           git clone --depth 1 "$UPSTREAM_REPO" /tmp/allvm-base
+          # ALLVM repo is missing cmake/Modules/ — clone from official LLVM
+          git clone --depth 1 --sparse https://github.com/llvm/llvm-project.git /tmp/llvm-upstream
+          cd /tmp/llvm-upstream && git sparse-checkout set cmake/Modules
+          cp -r cmake/Modules /tmp/llvm-cmake-Modules
+          cd /tmp/allvm-base
+          mkdir -p cmake
+          cp -r /tmp/llvm-cmake-Modules cmake/Modules
+          rm -rf /tmp/llvm-upstream /tmp/llvm-cmake-Modules
           # Clear workspace (keep .git for actions)
           find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
           # Copy upstream content into workspace
@@ -45,7 +53,8 @@ jobs:
           echo "=== Source assembled ==="
           ls -la
           echo "=== cmake check ==="
-          ls cmake/Modules/ | head -5 || echo "NO cmake/Modules"
+          ls cmake/Modules/ | head -10 || echo "NO cmake/Modules"
+          echo "=== llvm cmake check ==="
           ls llvm/cmake/modules/ | head -5 || echo "NO llvm/cmake/modules"
           echo "=== branding check ==="
           grep -c "Q-Protector" aVMPInterpreter/aVMPInterpreter.cpp
@@ -67,7 +76,8 @@ jobs:
           set -e
           missing=0
           for f in \
-            cmake/README.rst \
+            cmake/Modules/CMakePolicy.cmake \
+            cmake/Modules/LLVMVersion.cmake \
             llvm/cmake/modules/CMakeLists.txt \
             llvm/cmake/modules/LLVMConfig.cmake.in \
             llvm/include/llvm/Config/config.h.cmake \
