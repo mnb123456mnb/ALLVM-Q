@@ -203,9 +203,10 @@ jobs:
             -o /tmp/qp_test /tmp/qp_test.cpp
           /tmp/qp_test | tee /tmp/qp_out.txt
           grep -q "QP_TEST_OK" /tmp/qp_out.txt
-          strings /tmp/qp_test | grep -q "Q-Protector"
-          strings /tmp/qp_test | grep -q "version: 1.0.0"
-          strings /tmp/qp_test | grep -q "请关闭你的vpn"
+          # 水印/话术字符串检查：用 grep -a 直接搜二进制（strings 会丢 UTF-8 中文）
+          grep -aq "Q-Protector" /tmp/qp_test
+          grep -aq "version: 1.0.0" /tmp/qp_test
+          grep -aq "请关闭你的vpn" /tmp/qp_test
           echo VALIDATION_OK
 
       - name: Package toolchain-only
