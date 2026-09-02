@@ -26,36 +26,35 @@ jobs:
       - name: Clone upstream ALLVM as base source
         run: |
           set -e
+          # Save our fork's modified files (checkout content) to temp
+          rsync -a --exclude='.git' "$GITHUB_WORKSPACE/" /tmp/our-fork/
           # Clone upstream (full LLVM monorepo with ALLVM obfuscation passes)
           git clone --depth 1 "$UPSTREAM_REPO" /tmp/allvm-base
-          # Copy everything from upstream into current workspace
-          # (rsync: upstream as source, our fork's modified files overwrite)
-          cd /tmp/allvm-base
-          # Save our modified files before overwriting
-          cp -r "$GITHUB_WORKSPACE/.github" /tmp/our-github
-          cp -r "$GITHUB_WORKSPACE/aVMPInterpreter" /tmp/our-aVMP
-          cp -r "$GITHUB_WORKSPACE/llvm" /tmp/our-llvm
-          cp -r "$GITHUB_WORKSPACE/clang" /tmp/our-clang
-          cp "$GITHUB_WORKSPACE/README.md" /tmp/our-README.md 2>/dev/null || true
-          # Replace workspace with upstream content
-          rm -rf "$GITHUB_WORKSPACE"/*
+          # Clear workspace (keep .git for actions)
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          # Copy upstream content into workspace
           cp -a /tmp/allvm-base/. "$GITHUB_WORKSPACE/"
-          # Now overlay our modified files on top (cp -r overwrites)
-          cp -r /tmp/our-github/* "$GITHUB_WORKSPACE/.github/"
-          cp -r /tmp/our-aVMP/* "$GITHUB_WORKSPACE/aVMPInterpreter/"
-          cp -r /tmp/our-llvm/* "$GITHUB_WORKSPACE/llvm/"
-          cp -r /tmp/our-clang/* "$GITHUB_WORKSPACE/clang/"
-          cp /tmp/our-README.md "$GITHUB_WORKSPACE/README.md" 2>/dev/null || true
-          # Cleanup
-          rm -rf /tmp/allvm-base /tmp/our-github /tmp/our-aVMP /tmp/our-llvm /tmp/our-clang /tmp/our-README.md
+          rm -rf /tmp/allvm-base
+          # Overlay our modified files on top of upstream (our versions take priority)
+          rsync -a --exclude='.git' /tmp/our-fork/ "$GITHUB_WORKSPACE/"
+          # Restore .github (our workflow, not upstream's)
+          rm -rf "$GITHUB_WORKSPACE/.github"
+          cp -a /tmp/our-fork/.github "$GITHUB_WORKSPACE/.github"
+          rm -rf /tmp/our-fork
           cd "$GITHUB_WORKSPACE"
           echo "=== Source assembled ==="
           ls -la
+          echo "=== cmake check ==="
+          ls cmake/Modules/ | head -5 || echo "NO cmake/Modules"
+          ls llvm/cmake/modules/ | head -5 || echo "NO llvm/cmake/modules"
+          echo "=== branding check ==="
+          grep -c "Q-Protector" aVMPInterpreter/aVMPInterpreter.cpp
+          grep -c "Q-Protector" llvm/lib/Transforms/Obfuscation/DetectUtils.cpp
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake clang lld zlib1g-dev libzstd-dev python3 file unzip wget
+          sudo apt-get install -y ninja-build cmake clang lld zlib1g-dev libzstd-dev python3 file unzip wget rsync
 
       - name: Free disk space
         run: |
