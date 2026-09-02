@@ -84,7 +84,16 @@ jobs:
           #    这里同步改写上游构建引用，否则 CMake 找不到 AProtect.cpp
           sed -i 's/AProtect\.cpp/QProtect.cpp/g' "$WS/llvm/lib/Transforms/Obfuscation/CMakeLists.txt"
           grep -q 'QProtect.cpp' "$WS/llvm/lib/Transforms/Obfuscation/CMakeLists.txt" || { echo 'FATAL: CMakeLists rewrite failed'; exit 1; }
-          echo 'CMakeLists AProtect->QProtect rewritten OK'
+          # 上游 rsync 会带进 AProtect.cpp/.h，CMakeLists 已改用 QProtect.cpp，
+          # 孤儿源文件会触发 LLVM 构建系统的 "erroneous configuration" 硬错误，必须删除
+          rm -f "$WS/llvm/lib/Transforms/Obfuscation/AProtect.cpp" \
+                "$WS/llvm/include/llvm/Transforms/Obfuscation/AProtect.h"
+          if [ -f "$WS/llvm/lib/Transforms/Obfuscation/AProtect.cpp" ] || [ -f "$WS/llvm/include/llvm/Transforms/Obfuscation/AProtect.h" ]; then
+            echo 'FATAL: AProtect orphan files still present'; exit 1
+          fi
+          [ -f "$WS/llvm/lib/Transforms/Obfuscation/QProtect.cpp" ] || { echo 'FATAL: QProtect.cpp missing'; exit 1; }
+          [ -f "$WS/llvm/include/llvm/Transforms/Obfuscation/QProtect.h" ] || { echo 'FATAL: QProtect.h missing'; exit 1; }
+          echo 'CMakeLists AProtect->QProtect rewritten OK, orphans removed'
           # Verify assembly
           echo "=== cmake/Modules count ==="
           ls "$WS/cmake/Modules/" | wc -l
