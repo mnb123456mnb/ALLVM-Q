@@ -67,14 +67,11 @@ jobs:
           set -e
           missing=0
           for f in \
-            cmake/Modules/AddLLVM.cmake \
-            cmake/Modules/HandleLLVMOptions.cmake \
-            cmake/Modules/GNUInstallPackageDir.cmake \
-            llvm/cmake/modules/AddLLVM.cmake \
-            llvm/cmake/modules/TableGen.cmake \
+            cmake/README.rst \
+            llvm/cmake/modules/CMakeLists.txt \
+            llvm/cmake/modules/LLVMConfig.cmake.in \
             llvm/include/llvm/Config/config.h.cmake \
-            llvm/include/llvm/Config/llvm-config.h.cmake \
-            llvm/include/llvm/PassRegistry.def \
+            llvm/include/llvm/Config/Targets.def.in \
             llvm/lib/Transforms/Obfuscation/CMakeLists.txt \
             llvm/include/llvm/Transforms/Obfuscation/aVMP/vm.h \
             aVMPInterpreter/aVMPInterpreter.cpp ; do
