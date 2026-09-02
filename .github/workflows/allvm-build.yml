@@ -1,0 +1,217 @@
+name: Build ALLVM Q-Protector Toolchain (aarch64 Linux)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: https://github.com/abcdefgjh-li/ALLVM.git
+  NDK_ZIP_URL: https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout this fork (modified files only)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Clone upstream ALLVM as base source
+        run: |
+          set -e
+          # Clone upstream (full LLVM monorepo with ALLVM obfuscation passes)
+          git clone --depth 1 "$UPSTREAM_REPO" /tmp/allvm-base
+          # Copy everything from upstream into current workspace
+          # (rsync: upstream as source, our fork's modified files overwrite)
+          cd /tmp/allvm-base
+          # Save our modified files before overwriting
+          cp -r "$GITHUB_WORKSPACE/.github" /tmp/our-github
+          cp -r "$GITHUB_WORKSPACE/aVMPInterpreter" /tmp/our-aVMP
+          cp -r "$GITHUB_WORKSPACE/llvm" /tmp/our-llvm
+          cp -r "$GITHUB_WORKSPACE/clang" /tmp/our-clang
+          cp "$GITHUB_WORKSPACE/README.md" /tmp/our-README.md 2>/dev/null || true
+          # Replace workspace with upstream content
+          rm -rf "$GITHUB_WORKSPACE"/*
+          cp -a /tmp/allvm-base/. "$GITHUB_WORKSPACE/"
+          # Now overlay our modified files on top (cp -r overwrites)
+          cp -r /tmp/our-github/* "$GITHUB_WORKSPACE/.github/"
+          cp -r /tmp/our-aVMP/* "$GITHUB_WORKSPACE/aVMPInterpreter/"
+          cp -r /tmp/our-llvm/* "$GITHUB_WORKSPACE/llvm/"
+          cp -r /tmp/our-clang/* "$GITHUB_WORKSPACE/clang/"
+          cp /tmp/our-README.md "$GITHUB_WORKSPACE/README.md" 2>/dev/null || true
+          # Cleanup
+          rm -rf /tmp/allvm-base /tmp/our-github /tmp/our-aVMP /tmp/our-llvm /tmp/our-clang /tmp/our-README.md
+          cd "$GITHUB_WORKSPACE"
+          echo "=== Source assembled ==="
+          ls -la
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake clang lld zlib1g-dev libzstd-dev python3 file unzip wget
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          df -h /
+
+      - name: Verify critical files (previous-failure regression check)
+        run: |
+          set -e
+          missing=0
+          for f in \
+            cmake/Modules/AddLLVM.cmake \
+            cmake/Modules/HandleLLVMOptions.cmake \
+            cmake/Modules/GNUInstallPackageDir.cmake \
+            llvm/cmake/modules/AddLLVM.cmake \
+            llvm/cmake/modules/TableGen.cmake \
+            llvm/include/llvm/Config/config.h.cmake \
+            llvm/include/llvm/Config/llvm-config.h.cmake \
+            llvm/include/llvm/PassRegistry.def \
+            llvm/lib/Transforms/Obfuscation/CMakeLists.txt \
+            llvm/include/llvm/Transforms/Obfuscation/aVMP/vm.h \
+            aVMPInterpreter/aVMPInterpreter.cpp ; do
+            if [ -f "$f" ]; then echo "OK   $f"; else echo "MISS $f"; missing=1; fi
+          done
+          # Also verify our branding changes are present
+          grep -q "Q-Protector" aVMPInterpreter/aVMPInterpreter.cpp
+          grep -q "Q-Protector" llvm/lib/Transforms/Obfuscation/DetectUtils.cpp
+          grep -q "Q-Protector" llvm/lib/Transforms/Obfuscation/AProtect.cpp
+          grep -q "wsq520a" clang/lib/Basic/Version.cpp
+          echo "Branding verification passed"
+          exit $missing
+
+      - name: Download official NDK (sysroot + wrapper scripts)
+        run: |
+          set -e
+          cd $RUNNER_TEMP
+          wget -q "$NDK_ZIP_URL" -O ndk.zip
+          unzip -q ndk.zip
+          NDK_DIR=$(echo android-ndk-*)
+          echo "NDK_PREBUILT=$RUNNER_TEMP/$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
+
+      - name: Rebuild aVMPInterpreter.bc (Q-Protector branding)
+        run: |
+          set -e
+          cd aVMPInterpreter
+          clang -O2 -emit-llvm -c aVMPInterpreter.cpp -o aVMPInterpreter.bc \
+            -target aarch64-linux-android21 --sysroot="$NDK_PREBUILT/sysroot"
+          file aVMPInterpreter.bc
+          strings aVMPInterpreter.bc | grep -c "Q-Protector" || true
+
+      - name: Regenerate vm.h from new .bc
+        run: |
+          python3 - <<'PY'
+          data = open('aVMPInterpreter/aVMPInterpreter.bc','rb').read()
+          with open('llvm/include/llvm/Transforms/Obfuscation/aVMP/vm.h','w') as f:
+              f.write('#include <string>\n#include <vector>\n\n')
+              f.write('static const int binary_ir_length = %d;\n' % len(data))
+              f.write('static const char binary_ir_data[] =\n')
+              line = ''
+              for i, b in enumerate(data):
+                  if i % 16 == 0:
+                      line = '"'
+                  line += '\\x%02x' % b
+                  if i % 16 == 15:
+                      f.write(line + '"\n')
+                      line = ''
+              if len(data) % 16 != 0:
+                  f.write(line + '"')
+              f.write(';\n\n')
+              f.write('static std::vector<char> get_binary_ir() {\n')
+              f.write('    return std::vector<char>(binary_ir_data, binary_ir_data + binary_ir_length);\n')
+              f.write('}\n')
+          print('vm.h generated:', len(data), 'bytes')
+          PY
+
+      - name: Configure CMake
+        run: |
+          cmake -G Ninja -B build -S . \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;ARM;X86" \
+            -DLLVM_BUILD_TESTS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_PARALLEL_LINK_JOBS=2
+
+      - name: Build clang / lld / binutils (aarch64 host)
+        run: |
+          ninja -C build clang lld llvm-strip llvm-objcopy llvm-ar llvm-nm llvm-ranlib \
+            llvm-objdump llvm-readelf llvm-readobj llvm-size llvm-strings llvm-as llvm-dis \
+            llvm-link llvm-symbolizer llvm-profdata llc opt
+          df -h /
+
+      - name: Validate Q-Protector branding & obfuscation passes
+        run: |
+          set -e
+          build/bin/clang --version | head -2
+          cat > /tmp/qp_test.cpp <<'EOF'
+          #include <stdio.h>
+          int main() { printf("QP_TEST_OK\n"); return 0; }
+          EOF
+          build/bin/clang -O1 -mllvm -irobf-vpn -mllvm -irobf-fla -mllvm -level-fla=3 \
+            -o /tmp/qp_test /tmp/qp_test.cpp
+          /tmp/qp_test | tee /tmp/qp_out.txt
+          grep -q "QP_TEST_OK" /tmp/qp_out.txt
+          strings /tmp/qp_test | grep -q "Q-Protector"
+          strings /tmp/qp_test | grep -q "version: 1.0.0"
+          strings /tmp/qp_test | grep -q "请关闭你的vpn"
+          echo VALIDATION_OK
+
+      - name: Package toolchain-only
+        run: |
+          set -e
+          mkdir -p pkg/allvm-q-toolchain-aarch64/bin
+          for t in clang clang++ clang-21 lld ld.lld ld64.lld wasm-ld \
+            llvm-ar llvm-nm llvm-ranlib llvm-strip llvm-objcopy llvm-objdump \
+            llvm-readelf llvm-readobj llvm-size llvm-strings llvm-as llvm-dis \
+            llvm-link llvm-symbolizer llvm-profdata llc opt ; do
+            if [ -f "build/bin/$t" ]; then cp "build/bin/$t" pkg/allvm-q-toolchain-aarch64/bin/; fi
+          done
+          build/bin/llvm-strip pkg/allvm-q-toolchain-aarch64/bin/* 2>/dev/null || true
+          cp LICENSE.TXT pkg/allvm-q-toolchain-aarch64/ 2>/dev/null || true
+          tar czf allvm-q-toolchain-aarch64.tar.gz -C pkg allvm-q-toolchain-aarch64
+          ls -lh allvm-q-toolchain-aarch64.tar.gz
+
+      - name: Package full NDK (sysroot + aarch64 toolchain + wrappers)
+        run: |
+          set -e
+          NDK_PKG=$RUNNER_TEMP/ndk-pkg/android-ndk-allvm-q
+          PREBUILT=$NDK_PKG/toolchains/llvm/prebuilt/linux-aarch64
+          mkdir -p "$PREBUILT/bin"
+          cp -r "$NDK_PREBUILT/sysroot" "$PREBUILT/sysroot"
+          for t in clang clang++ clang-21 lld ld.lld wasm-ld \
+            llvm-ar llvm-nm llvm-ranlib llvm-strip llvm-objcopy llvm-objdump \
+            llvm-readelf llvm-readobj llvm-size llvm-strings llvm-as llvm-dis \
+            llvm-link llvm-symbolizer llvm-profdata llc opt ; do
+            if [ -f "build/bin/$t" ]; then cp "build/bin/$t" "$PREBUILT/bin/"; fi
+          done
+          build/bin/llvm-strip "$PREBUILT/bin/"* 2>/dev/null || true
+          # Copy platform-independent wrapper scripts from official NDK
+          for f in "$NDK_PREBUILT/bin/"*; do
+            if head -c 2 "$f" | grep -q '#!'; then cp "$f" "$PREBUILT/bin/"; fi
+          done
+          cp "$NDK_PREBUILT/../../source.properties" "$NDK_PKG/" 2>/dev/null || true
+          tar czf allvm-q-ndk-aarch64.tar.gz -C "$RUNNER_TEMP/ndk-pkg" android-ndk-allvm-q
+          ls -lh allvm-q-ndk-aarch64.tar.gz
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: Q-Protector ALLVM Toolchain v1.0.0 (aarch64 Linux)
+          files: |
+            allvm-q-toolchain-aarch64.tar.gz
+            allvm-q-ndk-aarch64.tar.gz
