@@ -45,6 +45,10 @@ struct QProtect : public ModulePass {
 char QProtect::ID = 0;
 
 bool QProtect::runOnModule(Module &M) {
+    // 单模块守卫：只在包含 main 的编译单元注入启动水印，
+    // 避免多文件工程每个 .cpp 各打一遍横幅刷屏
+    if (!M.getFunction("main"))
+        return true;
     LLVMContext &Ctx = M.getContext();
     Type *Int32Ty = Type::getInt32Ty(Ctx);
     Type *CharPtrTy = PointerType::get(Ctx, 0);
