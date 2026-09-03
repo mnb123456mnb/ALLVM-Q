@@ -413,7 +413,40 @@ namespace llvm {
 		errs() << "========================================\n";
     }
 
-			// ========== 1. 检测类Pass ==========
+			// ========== 1. 内容变换类Pass（必须先于VMP：VMP会把字符串/常量地址烤进VM字节码） ==========
+			if (EnableIRStringEncryption || Options->cseOpt()->isEnabled()) {
+				add(llvm::createStringEncryptionPass(Options.get()));
+			}
+
+			if (EnableIRConstantIntEncryption || Options->cieOpt()->isEnabled()) {
+				add(llvm::createConstantIntEncryptionPass(Options.get()));
+			}
+
+			if (EnableIRConstantFPEncryption || Options->cfeOpt()->isEnabled()) {
+				add(llvm::createConstantFPEncryptionPass(Options.get()));
+			}
+
+			if (EnableIRFlattening || Options->flaOpt()->isEnabled()) {
+				add(llvm::createFlatteningPass(pointerSize, Options.get()));
+			}
+
+			if (EnableIndirectGV || Options->indGvOpt()->isEnabled()) {
+				add(llvm::createIndirectGlobalVariablePass(Options.get()));
+			}
+
+			if (EnableIndirectCall || Options->iCallOpt()->isEnabled()) {
+				add(llvm::createIndirectCallPass(Options.get()));
+			}
+
+			if (EnableIndirectBr || Options->indBrOpt()->isEnabled()) {
+				add(llvm::createIndirectBranchPass(Options.get()));
+			}
+
+			if (EnableRttiEraser || Options->rttiOpt()->isEnabled()) {
+				add(llvm::createMsRttiEraserPass(Options.get()));
+			}
+
+			// ========== 2. 检测+保护注入类Pass（注入代码随后被VMP一起虚拟化，保护更强） ==========
 			if (EnableLdPreloadProtect) {
 				add(llvm::createLdPreloadProtectPass());
 			}
@@ -450,21 +483,10 @@ namespace llvm {
 				add(llvm::createNoRootDetectPass());
 			}
 
-			// ========== 2. SyscallProtect ==========
 			if (EnableSyscallProtect) {
 				add(llvm::createSyscallProtectPass());
 			}
 
-			if (EnableIRStringEncryption || Options->cseOpt()->isEnabled()) {
-				add(llvm::createStringEncryptionPass(Options.get()));
-			}
-
-			// ========== 3. VMProtect ==========
-			if (EnableVMProtect) {
-				add(llvm::createVMProtectPass(true));
-			}
-
-			// ========== 4. 保护类Pass ==========
 			if (EnableUsbProtect) {
 				add(llvm::createUsbProtectPass());
 			}
@@ -489,34 +511,9 @@ namespace llvm {
 				add(llvm::createGzEnvCheckPass());
 			}
 
-		// 只有启用对应选项时才添加混淆Pass
-		if (EnableIRConstantIntEncryption || Options->cieOpt()->isEnabled()) {
-			add(llvm::createConstantIntEncryptionPass(Options.get()));
-		}
-
-		if (EnableIRConstantFPEncryption || Options->cfeOpt()->isEnabled()) {
-			add(llvm::createConstantFPEncryptionPass(Options.get()));
-		}
-
-
-		if (EnableIndirectGV || Options->indGvOpt()->isEnabled()) {
-			add(llvm::createIndirectGlobalVariablePass(Options.get()));
-		}
-
-		if (EnableIndirectCall || Options->iCallOpt()->isEnabled()) {
-			add(llvm::createIndirectCallPass(Options.get()));
-		}
-
-		if (EnableIRFlattening || Options->flaOpt()->isEnabled()) {
-        add(llvm::createFlatteningPass(pointerSize, Options.get()));
-    }
-
-    if (EnableIndirectBr || Options->indBrOpt()->isEnabled()) {
-			add(llvm::createIndirectBranchPass(Options.get()));
-		}
-
-			if (EnableRttiEraser || Options->rttiOpt()->isEnabled()) {
-				add(llvm::createMsRttiEraserPass(Options.get()));
+			// ========== 3. VMProtect（终结者，最后执行） ==========
+			if (EnableVMProtect) {
+				add(llvm::createVMProtectPass(true));
 			}
 
 			bool Changed = run(M);
