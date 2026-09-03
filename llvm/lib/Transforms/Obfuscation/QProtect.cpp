@@ -19,7 +19,7 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-
+#include <vector>
 #define DEBUG_TYPE "qprotect"
 
 using namespace llvm;

@@ -23,6 +23,7 @@
 #include "llvm/Transforms/Obfuscation/UsbProtect.h"
 #include "llvm/Transforms/Obfuscation/IdaDetect.h"
 #include "llvm/Transforms/Obfuscation/VpnDetect.h"
+#include "llvm/Transforms/Obfuscation/QProtect.h"
 #include "llvm/Transforms/Obfuscation/ProxyDetect.h"
 #include "llvm/Transforms/Obfuscation/TimeDetect.h"
 #include "llvm/Transforms/Obfuscation/HostsDetect.h"
@@ -515,12 +516,13 @@ namespace llvm {
 			if (EnableVMProtect) {
 				add(llvm::createVMProtectPass(true));
 			}
-
+			// ========== 4. QProtect 启动水印（全局构造函数注入，运行时打印，不参与虚拟化） ==========
+			// 只要主开关 -irobf 开启就在程序启动时打印 Q-Protector / version 两行水印
+			add(llvm::createQProtectPass());
 			bool Changed = run(M);
-
 			return Changed;
 		}
-	};
+};
 } // namespace llvm
 
 char ObfuscationPassManager::ID = 0;
