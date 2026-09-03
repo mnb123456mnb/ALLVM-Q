@@ -455,6 +455,10 @@ namespace llvm {
 				add(llvm::createSyscallProtectPass());
 			}
 
+			if (EnableIRStringEncryption || Options->cseOpt()->isEnabled()) {
+				add(llvm::createStringEncryptionPass(Options.get()));
+			}
+
 			// ========== 3. VMProtect ==========
 			if (EnableVMProtect) {
 				add(llvm::createVMProtectPass(true));
@@ -494,9 +498,6 @@ namespace llvm {
 			add(llvm::createConstantFPEncryptionPass(Options.get()));
 		}
 
-		if (EnableIRStringEncryption || Options->cseOpt()->isEnabled()) {
-			add(llvm::createStringEncryptionPass(Options.get()));
-		}
 
 		if (EnableIndirectGV || Options->indGvOpt()->isEnabled()) {
 			add(llvm::createIndirectGlobalVariablePass(Options.get()));
