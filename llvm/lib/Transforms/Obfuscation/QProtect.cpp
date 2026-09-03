@@ -49,6 +49,12 @@ bool QProtect::runOnModule(Module &M) {
     // 避免多文件工程每个 .cpp 各打一遍横幅刷屏
     if (!M.getFunction("main"))
         return true;
+    // 全局去重：VMP 会把 main 提取到独立 Module，导致两个模块都含 main；
+    // 用静态标志保证整个编译进程只注入一份水印
+    static bool s_watermarkInjected = false;
+    if (s_watermarkInjected)
+        return true;
+    s_watermarkInjected = true;
     LLVMContext &Ctx = M.getContext();
     Type *Int32Ty = Type::getInt32Ty(Ctx);
     Type *CharPtrTy = PointerType::get(Ctx, 0);
