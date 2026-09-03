@@ -851,11 +851,28 @@ Function* DetectUtils::createPtraceSelfAttachFunc(Module &M, Function *reportFun
         MonitorFuncPtr,
         ChildPidAsPtr
     });
-
     Builder.CreateBr(ExitBB);
-
     Builder.SetInsertPoint(ExitBB);
-    Builder.CreateRetVoid();
+    // 修复：父进程（tracer）只负责监控，绝不返回继续执行 main 逻辑，
+    // 否则父子两个进程都会跑完整程序（公告/卡密请求双份、并发崩溃）。
+    // 循环 waitpid 等子进程（被跟踪的 tracee）退出后，父进程随之退出。
+    {
+        Value *ExitStatusAlloca = Builder.CreateAlloca(Int32Ty, nullptr, "exit_status");
+        Value *ExitStatusPtr = Builder.CreateBitCast(ExitStatusAlloca, CharPtrTy);
+        BasicBlock *WaitLoopBB = BasicBlock::Create(Ctx, "parent_wait_loop", Func);
+        BasicBlock *ChildGoneBB = BasicBlock::Create(Ctx, "parent_child_gone", Func);
+        Builder.CreateBr(WaitLoopBB);
+        Builder.SetInsertPoint(WaitLoopBB);
+        Value *WaitRet = Builder.CreateCall(WaitpidFunc, {PidPhi, ExitStatusPtr, ConstantInt::get(Int32Ty, 0)});
+        // waitpid 返回子进程 pid => 子进程已退出，父进程跟着退出；否则继续等
+        Value *ChildExited = Builder.CreateICmpEQ(WaitRet, PidPhi);
+        Builder.CreateCondBr(ChildExited, ChildGoneBB, WaitLoopBB);
+        Builder.SetInsertPoint(ChildGoneBB);
+        FunctionCallee ExitFunc = M.getOrInsertFunction(
+            "exit", FunctionType::get(VoidTy, {Int32Ty}, false));
+        Builder.CreateCall(ExitFunc, {ConstantInt::get(Int32Ty, 0)});
+        Builder.CreateUnreachable();
+    }
 
     return Func;
 }
