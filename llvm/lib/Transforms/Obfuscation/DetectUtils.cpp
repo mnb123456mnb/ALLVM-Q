@@ -77,8 +77,9 @@ Function* DetectUtils::createReportAndKillFunc(Module &M, const std::string &det
     BasicBlock *BB = BasicBlock::Create(Ctx, "entry", Func);
     IRBuilder<> Builder(BB);
 
-    createQProtectBannerWrite(M, Builder);
     // VPN 触发时附加专属提示（正式版也显示）
+    // 注意：不再重复打印 Q-Protector/version 横幅（QProtect pass 已在启动时打印），
+    // 修复触发检测时水印显示两行的问题
     if (detectName == "VPN Connection") {
         createStderrWrite(
             M,
@@ -311,9 +312,25 @@ Function* DetectUtils::createThreadFunc(Module &M, Function *checkFunc, const De
     BasicBlock *ThreadBB = BasicBlock::Create(Ctx, "entry", ThreadFunc);
     IRBuilder<> ThreadBuilder(ThreadBB);
     
-    // 调用检测函数
-    ThreadBuilder.CreateCall(checkFunc);
-    ThreadBuilder.CreateRetVoid();
+    // 循环模式：UseThread=true 且 opts.MaxDelayMs == 0 时，线程周期性执行检测
+    // 用于 TimeDetect 等需要持续监控的场景（STOP/CONT 暂停会拉长单次执行时间）
+    if (opts.MaxDelayMs == 0) {
+        BasicBlock *LoopBB = BasicBlock::Create(Ctx, "loop", ThreadFunc);
+        FunctionCallee SleepFunc = M.getOrInsertFunction(
+            "usleep", FunctionType::get(Int32Ty, {Int32Ty}, false));
+        // 初始等待 500ms 让 main 正常启动
+        ThreadBuilder.CreateCall(SleepFunc, {ConstantInt::get(Int32Ty, 500000)});
+        ThreadBuilder.CreateBr(LoopBB);
+        ThreadBuilder.SetInsertPoint(LoopBB);
+        ThreadBuilder.CreateCall(checkFunc);
+        ThreadBuilder.CreateCall(SleepFunc, {ConstantInt::get(Int32Ty, 1000000)});
+        ThreadBuilder.CreateBr(LoopBB);
+        ThreadBuilder.CreateRetVoid();
+    } else {
+        // 单次模式：调用检测函数后结束
+        ThreadBuilder.CreateCall(checkFunc);
+        ThreadBuilder.CreateRetVoid();
+    }
     
     // 创建启动线程函数
     FunctionType *FuncTy = FunctionType::get(VoidTy, {}, false);

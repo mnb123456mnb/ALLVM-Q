@@ -101,12 +101,24 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
         return DetectUtils::createGlobalString(M, str, ".hosts.str");
     };
     
-    Constant *HostsPath = makeString("/etc/hosts");
+    Constant *HostsPath = makeString("/system/etc/hosts");
+    Constant *HostsPath2 = makeString("/etc/hosts");
     Constant *ReadMode = makeString("r");
     
+    // 先尝试 /system/etc/hosts（Android 真实路径），失败再尝试 /etc/hosts
     Value *Fp = Builder.CreateCall(FopenFunc, {HostsPath, ReadMode});
-    Value *FpNotNull = Builder.CreateICmpNE(Fp, ConstantPointerNull::get(CharPtrTy));
-    Builder.CreateCondBr(FpNotNull, OpenOkBB, OpenFailBB);
+    Value *FpNull = Builder.CreateICmpEQ(Fp, ConstantPointerNull::get(CharPtrTy));
+    BasicBlock *TrySecondBB = BasicBlock::Create(Ctx, "try_second_path", Func);
+    Builder.CreateCondBr(FpNull, TrySecondBB, OpenOkBB);
+    
+    Builder.SetInsertPoint(TrySecondBB);
+    Value *Fp2 = Builder.CreateCall(FopenFunc, {HostsPath2, ReadMode});
+    Value *Fp2NotNull = Builder.CreateICmpNE(Fp2, ConstantPointerNull::get(CharPtrTy));
+    BasicBlock *OpenOk2BB = BasicBlock::Create(Ctx, "open_ok2", Func);
+    Builder.CreateCondBr(Fp2NotNull, OpenOk2BB, OpenFailBB);
+    Builder.SetInsertPoint(OpenOk2BB);
+    Fp = Fp2;
+    Builder.CreateBr(OpenOkBB);
     
     Builder.SetInsertPoint(OpenFailBB);
     Builder.CreateBr(ExitBB);
@@ -140,26 +152,30 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
     
     Builder.SetInsertPoint(CheckPatternsBB);
     
+    // 检测任何将非 localhost 主机名映射的行（hosts 劫持特征）
+    // 正常 hosts 只有 localhost / ip6-localhost 条目
     Constant *Patterns[] = {
-        makeString("js"),
-        makeString("wy"),
-        makeString("t3"),
-        makeString("wig")
-    };
+        makeString("localhost"),   // 正常条目，命中说明是 localhost 行（继续检查）
+        makeString("ip6-localhost"),
+        makeString("ip6-loopback")
+};
     
-    Value *AnyFound = nullptr;
+    // 计算该行是否为已知正常条目：不匹配任何已知安全字符串 => 视为劫持
+    Value *AllSafe = nullptr;
     for (Constant *Pattern : Patterns) {
         Value *Found = Builder.CreateCall(StrstrFunc, {LineBufPtr, Pattern});
         Value *FoundNotNull = Builder.CreateICmpNE(Found, ConstantPointerNull::get(CharPtrTy));
-        if (AnyFound == nullptr) {
-            AnyFound = FoundNotNull;
+        if (AllSafe == nullptr) {
+            AllSafe = FoundNotNull;
         } else {
-            AnyFound = Builder.CreateOr(AnyFound, FoundNotNull);
+            AllSafe = Builder.CreateOr(AllSafe, FoundNotNull);
         }
     }
+    // AllSafe == false 表示该行既非注释也非 localhost 相关 => hosts 被修改
+    Value *Unsafe = Builder.CreateNot(AllSafe);
     
     BasicBlock *FoundBB = BasicBlock::Create(Ctx, "found", Func);
-    Builder.CreateCondBr(AnyFound, FoundBB, LoopBB);
+    Builder.CreateCondBr(Unsafe, FoundBB, LoopBB);
     
     Builder.SetInsertPoint(FoundBB);
     Builder.CreateCall(FcloseFunc, {Fp});

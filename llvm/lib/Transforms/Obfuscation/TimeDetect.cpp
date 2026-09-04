@@ -150,10 +150,13 @@ bool TimeDetect::runOnModule(Module &M) {
     // 创建时间检测函数
     Function *CheckFunc = createTimeCheckFunc(M, ReportAndKillFunc);
     
-    // 配置选项
-    DetectOptions opts = DetectOptions::create(false);
+    // 配置选项：使用后台线程周期性执行时间差检测
+    // 修复：原先只在 main 入口执行一次，无法捕获运行期间的 SIGSTOP/单步调试
+    DetectOptions opts = DetectOptions::create(true);
+    opts.MinDelayMs = 0;
+    opts.MaxDelayMs = 0;
     
-    // 注入到main函数
+    // 注入到main函数（线程模式，周期检测）
     return DetectUtils::injectToMain(M, CheckFunc, opts);
 }
 
