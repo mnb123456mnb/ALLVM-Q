@@ -12,7 +12,7 @@ env:
   UPSTREAM_REPO: https://github.com/abcdefgjh-li/ALLVM.git
   LLVM_OFFICIAL_REPO: https://github.com/llvm/llvm-project.git
   LLVM_OFFICIAL_BRANCH: release/21.x
-  NDK_ZIP_URL: https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+  NDK_ZIP_URL: https://dl.google.com/android/repository/android-ndk-r30-beta3-linux.zip
 
 jobs:
   build:
