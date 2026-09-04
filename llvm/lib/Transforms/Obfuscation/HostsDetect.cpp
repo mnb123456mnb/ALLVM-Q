@@ -1,12 +1,14 @@
 //===- HostsDetect.cpp - Hosts文件检测注入Pass ----------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
 // 本文件实现Hosts文件检测注入Pass，在程序入口点注入检测代码
-// 检测/etc/hosts中的可疑内容（代理/抓包工具特征）
+// 保留原有逻辑：
+//   - 检测 /etc/hosts 中的可疑特征字符串（js/wy/t3/wig）
+// 修复与新增：
+//   - Android 真实路径 /system/etc/hosts 优先，/etc/hosts 兜底（PC 与安卓都覆盖）
+//   - 新增通用劫持检测：任何非注释且不映射 localhost/ip6-localhost/ip6-loopback
+//     的行视为 hosts 被修改
 //
 //===----------------------------------------------------------------------===//
-
 #include "llvm/Transforms/Obfuscation/HostsDetect.h"
 #include "llvm/Transforms/Obfuscation/DetectUtils.h"
 #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
@@ -21,31 +23,23 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-
 #define DEBUG_TYPE "hostsdetect"
-
 using namespace llvm;
-
 namespace {
 
 struct HostsDetect : public ModulePass {
     static char ID;
-
     HostsDetect() : ModulePass(ID) {
         initializeHostsDetectPass(*PassRegistry::getPassRegistry());
     }
-
     StringRef getPassName() const override {
         return {"HostsDetect"};
     }
-
     bool runOnModule(Module &M) override;
     
     Function* createHostsCheckFunc(Module &M, Function *reportFunc);
 };
-
 }
-
 char HostsDetect::ID = 0;
 
 Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
@@ -68,11 +62,13 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
     Func->addFnAttr(Attribute::NoInline);
     
     BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Func);
+    BasicBlock *TrySecondBB = BasicBlock::Create(Ctx, "try_second_path", Func);
     BasicBlock *OpenOkBB = BasicBlock::Create(Ctx, "open_ok", Func);
     BasicBlock *OpenFailBB = BasicBlock::Create(Ctx, "open_fail", Func);
     BasicBlock *LoopBB = BasicBlock::Create(Ctx, "loop", Func);
     BasicBlock *CheckLineBB = BasicBlock::Create(Ctx, "check_line", Func);
     BasicBlock *CheckPatternsBB = BasicBlock::Create(Ctx, "check_patterns", Func);
+    BasicBlock *FoundBB = BasicBlock::Create(Ctx, "found", Func);
     BasicBlock *ExitBB = BasicBlock::Create(Ctx, "exit", Func);
     
     IRBuilder<> Builder(EntryBB);
@@ -101,24 +97,19 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
         return DetectUtils::createGlobalString(M, str, ".hosts.str");
     };
     
-    Constant *HostsPath = makeString("/system/etc/hosts");
-    Constant *HostsPath2 = makeString("/etc/hosts");
+    // 双路径：Android 真实路径优先，PC/Linux 路径兜底
+    Constant *HostsPathPrimary = makeString("/system/etc/hosts");
+    Constant *HostsPathSecondary = makeString("/etc/hosts");
     Constant *ReadMode = makeString("r");
     
-    // 先尝试 /system/etc/hosts（Android 真实路径），失败再尝试 /etc/hosts
-    Value *Fp = Builder.CreateCall(FopenFunc, {HostsPath, ReadMode});
+    Value *Fp = Builder.CreateCall(FopenFunc, {HostsPathPrimary, ReadMode});
     Value *FpNull = Builder.CreateICmpEQ(Fp, ConstantPointerNull::get(CharPtrTy));
-    BasicBlock *TrySecondBB = BasicBlock::Create(Ctx, "try_second_path", Func);
     Builder.CreateCondBr(FpNull, TrySecondBB, OpenOkBB);
     
     Builder.SetInsertPoint(TrySecondBB);
-    Value *Fp2 = Builder.CreateCall(FopenFunc, {HostsPath2, ReadMode});
+    Value *Fp2 = Builder.CreateCall(FopenFunc, {HostsPathSecondary, ReadMode});
     Value *Fp2NotNull = Builder.CreateICmpNE(Fp2, ConstantPointerNull::get(CharPtrTy));
-    BasicBlock *OpenOk2BB = BasicBlock::Create(Ctx, "open_ok2", Func);
-    Builder.CreateCondBr(Fp2NotNull, OpenOk2BB, OpenFailBB);
-    Builder.SetInsertPoint(OpenOk2BB);
-    Fp = Fp2;
-    Builder.CreateBr(OpenOkBB);
+    Builder.CreateCondBr(Fp2NotNull, OpenOkBB, OpenFailBB);
     
     Builder.SetInsertPoint(OpenFailBB);
     Builder.CreateBr(ExitBB);
@@ -152,17 +143,35 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
     
     Builder.SetInsertPoint(CheckPatternsBB);
     
-    // 检测任何将非 localhost 主机名映射的行（hosts 劫持特征）
-    // 正常 hosts 只有 localhost / ip6-localhost 条目
-    Constant *Patterns[] = {
-        makeString("localhost"),   // 正常条目，命中说明是 localhost 行（继续检查）
+    // ===== 原有特征（保留） =====
+    Constant *LegacyPatterns[] = {
+        makeString("js"),
+        makeString("wy"),
+        makeString("t3"),
+        makeString("wig")
+    };
+    
+    Value *LegacyFound = nullptr;
+    for (Constant *Pattern : LegacyPatterns) {
+        Value *Found = Builder.CreateCall(StrstrFunc, {LineBufPtr, Pattern});
+        Value *FoundNotNull = Builder.CreateICmpNE(Found, ConstantPointerNull::get(CharPtrTy));
+        if (LegacyFound == nullptr) {
+            LegacyFound = FoundNotNull;
+        } else {
+            LegacyFound = Builder.CreateOr(LegacyFound, FoundNotNull);
+        }
+    }
+    
+    // ===== 新增：通用劫持检测 =====
+    // 该行命中任何"正常条目"特征 => 安全；否则视为劫持
+    Constant *SafePatterns[] = {
+        makeString("localhost"),
         makeString("ip6-localhost"),
         makeString("ip6-loopback")
-};
+    };
     
-    // 计算该行是否为已知正常条目：不匹配任何已知安全字符串 => 视为劫持
     Value *AllSafe = nullptr;
-    for (Constant *Pattern : Patterns) {
+    for (Constant *Pattern : SafePatterns) {
         Value *Found = Builder.CreateCall(StrstrFunc, {LineBufPtr, Pattern});
         Value *FoundNotNull = Builder.CreateICmpNE(Found, ConstantPointerNull::get(CharPtrTy));
         if (AllSafe == nullptr) {
@@ -171,11 +180,12 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
             AllSafe = Builder.CreateOr(AllSafe, FoundNotNull);
         }
     }
-    // AllSafe == false 表示该行既非注释也非 localhost 相关 => hosts 被修改
     Value *Unsafe = Builder.CreateNot(AllSafe);
     
-    BasicBlock *FoundBB = BasicBlock::Create(Ctx, "found", Func);
-    Builder.CreateCondBr(Unsafe, FoundBB, LoopBB);
+    // 原特征命中 或 通用劫持命中 => 报告
+    Value *ShouldReport = Builder.CreateOr(LegacyFound, Unsafe);
+    
+    Builder.CreateCondBr(ShouldReport, FoundBB, LoopBB);
     
     Builder.SetInsertPoint(FoundBB);
     Builder.CreateCall(FcloseFunc, {Fp});
@@ -187,17 +197,14 @@ Function* HostsDetect::createHostsCheckFunc(Module &M, Function *reportFunc) {
     
     return Func;
 }
-
 bool HostsDetect::runOnModule(Module &M) {
     if (isIRObfuscationDebugEnabled()) {
         errs() << "[DEBUG] HostsDetect: Injecting hosts detection\n";
     }
-
     Function *MainFunc = M.getFunction("main");
     if (!MainFunc || MainFunc->isDeclaration() || MainFunc->empty()) {
         return false;
     }
-
     // 使用公共模块创建报告函数
     Function *ReportFunc = DetectUtils::createReportAndKillFunc(M, "Hosts File");
     
@@ -214,6 +221,5 @@ bool HostsDetect::runOnModule(Module &M) {
 ModulePass *llvm::createHostsDetectPass() {
     return new HostsDetect();
 }
-
-INITIALIZE_PASS_BEGIN(HostsDetect, "hostsdetect", "Inject hosts file detection at program start", false, false)
-INITIALIZE_PASS_END(HostsDetect, "hostsdetect", "Inject hosts file detection at program start", false, false)
+INITIALIZE_PASS_BEGIN(HostsDetect, "hostsdetect", "Inject hosts detection at program start", false, false)
+INITIALIZE_PASS_END(HostsDetect, "hostsdetect", "Inject hosts detection at program start", false, false)
